@@ -31,6 +31,7 @@
   "main": "main.js",
   "dependencies": {
     "commander": "^2.8.1",
+    "shelljs": "^0.7.0",
     "simple-spinner": "0.0.3",
     "underscore": "^1.8.3"
   },

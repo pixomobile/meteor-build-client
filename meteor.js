@@ -3,6 +3,7 @@ var fs = require('fs');
 var path = require('path');
 var _ = require('underscore');
 var spinner = require('simple-spinner');
+var shelljs = require('shelljs/global');
 
 // VARIABLES
 var argPath = process.argv[2],
@@ -55,7 +56,7 @@ module.exports = {
         // remove the bundle folder
         deleteFolderRecursive(buildPath);
 
-        var command = 'meteor build '+ argPath + ' --directory';
+        var command = 'meteor build '+ argPath + ' --server-only --directory';
 
         if(program.url)
              command += ' --server '+ program.url;
@@ -92,6 +93,7 @@ module.exports = {
     },
     addIndexFile: function(program, callback){
         var starJson = require(path.resolve(buildPath) + '/bundle/star.json');
+        var program = require(path.resolve(buildPath) + '/program.json');
         var settingsJson = program.settings ? require(path.resolve(program.settings)) : {};
 
         var content = fs.readFileSync(program.template || path.resolve(__dirname, 'index.html'), {encoding: 'utf-8'});
@@ -105,43 +107,35 @@ module.exports = {
         // ADD HEAD
         content = content.replace(/{{ *> *head *}}/,head);
 
-        // get the css and js files
-        var files = {};
-        _.each(fs.readdirSync(buildPath), function(file){
-            if(/^[a-z0-9]{40}\.css$/.test(file))
-                files['css'] = file;
-            if(/^[a-z0-9]{40}\.js$/.test(file))
-                files['js'] = file;
-        });
+        // get css, js from manifest
+        var cssfiles = [];
+        var jsfiles = [];
+        for (var i = 0; i < program.manifest.length; i++) {
+          var item = program.manifest[i];
 
-        // MAKE PATHS ABSOLUTE
-        if(_.isString(program.path)) {
-
-            // fix paths in the CSS file
-            if(!_.isEmpty(files['css'])) {
-
-                var cssFile = fs.readFileSync(path.join(buildPath, files['css']), {encoding: 'utf8'});
-                cssFile = cssFile.replace(/url\(\'\//g, 'url(\''+ program.path).replace(/url\(\//g, 'url('+ program.path);
-                fs.unlinkSync(path.join(buildPath, files['css']));
-                fs.writeFileSync(path.join(buildPath, files['css']), cssFile, {encoding: 'utf8'});
-
-                files['css'] = program.path + files['css'];
-            }
-            files['js'] = program.path + files['js'];
-        } else {
-            if(!_.isEmpty(files['css']))
-                files['css'] = '/'+ files['css'];
-            files['js'] = '/'+ files['js'];
+          if (item.type === "css") {
+            cssfiles.push(item);
+          }
+          else if (item.type === "js") {
+            jsfiles.push(item);
+          }
         }
-
-
         // ADD CSS
-        var css = '<link rel="stylesheet" type="text/css" class="__meteor-css__" href="'+ files['css'] +'?meteor_css_resource=true">';
+        var css = '';
+
+        for (var i = 0; i < cssfiles.length; i++) {
+            css +=  '<link rel="stylesheet" type="text/css" class="__meteor-css__" href="//cdn.crosscourse.com'+ cssfiles[i].url +'">';
+            console.log("css: " + cssfiles[i].url)
+        }
         content = content.replace(/{{ *> *css *}}/, css);
 
         // ADD the SCRIPT files
-        var scripts = '__meteor_runtime_config__'+ "\n"+
-        '        <script type="text/javascript" src="'+ files['js'] +'"></script>'+ "\n";
+        var scripts = '__meteor_runtime_config__'+ "\n";
+
+        for (var i = 0; i < jsfiles.length; i++) {
+          scripts +=  '        <script type="text/javascript" src="//cdn.crosscourse.com'+ jsfiles[i].url +'"></script>'+ "\n";
+          console.log("js: " + jsfiles[i].url)
+        }
 
         // add the meteor runtime config
         settings = {
@@ -163,12 +157,16 @@ module.exports = {
             settings.PUBLIC_SETTINGS = settingsJson.public;
 
         scripts = scripts.replace('__meteor_runtime_config__', '<script type="text/javascript">__meteor_runtime_config__ = JSON.parse(decodeURIComponent("'+encodeURIComponent(JSON.stringify(settings))+'"));</script>');
-        
+
         // add Meteor.disconnect() when no server is given
         if(!program.url)
             scripts += '        <script type="text/javascript">Meteor.disconnect();</script>';
 
         content = content.replace(/{{ *> *scripts *}}/, scripts);
+        //
+        content = content.replace(/{{ *> *version *}}/, exec('git log -1').stdout);
+        content = content.replace(/{{ *> *datetime *}}/, new Date());
+        content = content.replace(/{{ *> *randomspace *}}/, new Array(Math.floor(Math.random() * 20) + 1).join(' '));
 
         // write the index.html
         fs.writeFile(path.join(buildPath, 'index.html'), content, callback);
